@@ -5,8 +5,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System.IO;
 using System.Threading.Tasks;
+using System;
 
-namespace ST10114423.Functions
+namespace RetailFunctions
 {
     public static class UploadFile
     {
@@ -23,18 +24,41 @@ namespace ST10114423.Functions
                 return new BadRequestObjectResult("Share name and file name must be provided.");
             }
 
-            var connectionString = Environment.GetEnvironmentVariable("AzureStorage:ConnectionString");
-            var shareServiceClient = new ShareServiceClient(connectionString);
-            var shareClient = shareServiceClient.GetShareClient(shareName);
-            await shareClient.CreateIfNotExistsAsync();
-            var directoryClient = shareClient.GetRootDirectoryClient();
-            var fileClient = directoryClient.GetFileClient(fileName);
+            // Get the connection string from the environment variable
+            var connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
 
-            using var stream = req.Body;
-            await fileClient.CreateAsync(stream.Length);
-            await fileClient.UploadAsync(stream);
+            // Validate the connection string
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                log.LogError("AzureWebJobsStorage environment variable is not set.");
+                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+            }
 
-            return new OkObjectResult("File uploaded to Azure Files");
+            try
+            {
+                // Create the Share service client
+                var shareServiceClient = new ShareServiceClient(connectionString);
+                var shareClient = shareServiceClient.GetShareClient(shareName);
+
+                // Ensure the file share exists
+                await shareClient.CreateIfNotExistsAsync();
+
+                // Get the root directory and file client
+                var directoryClient = shareClient.GetRootDirectoryClient();
+                var fileClient = directoryClient.GetFileClient(fileName);
+
+                // Upload the file to Azure Files
+                using var stream = req.Body;
+                await fileClient.CreateAsync(stream.Length);
+                await fileClient.UploadAsync(stream);
+
+                return new OkObjectResult("File uploaded to Azure Files successfully.");
+            }
+            catch (Exception ex)
+            {
+                log.LogError($"Error uploading file to Azure Files: {ex.Message}");
+                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+            }
         }
     }
 }

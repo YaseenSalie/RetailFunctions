@@ -4,8 +4,9 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System.Threading.Tasks;
+using System;
 
-namespace ST10114423.Functions
+namespace RetailFunctions
 {
     public static class StoreTableInfo
     {
@@ -24,15 +25,36 @@ namespace ST10114423.Functions
                 return new BadRequestObjectResult("Table name, partition key, row key, and data must be provided.");
             }
 
-            var connectionString = Environment.GetEnvironmentVariable("AzureStorage:ConnectionString");
-            var serviceClient = new TableServiceClient(connectionString);
-            var tableClient = serviceClient.GetTableClient(tableName);
-            await tableClient.CreateIfNotExistsAsync();
+            // Get the connection string from the environment variable
+            var connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
 
-            var entity = new TableEntity(partitionKey, rowKey) { ["Data"] = data };
-            await tableClient.AddEntityAsync(entity);
+            // Validate the connection string
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                log.LogError("AzureWebJobsStorage environment variable is not set.");
+                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+            }
 
-            return new OkObjectResult("Data added to table");
+            try
+            {
+                // Create the Table Service client
+                var serviceClient = new TableServiceClient(connectionString);
+                var tableClient = serviceClient.GetTableClient(tableName);
+
+                // Ensure the table exists
+                await tableClient.CreateIfNotExistsAsync();
+
+                // Create the entity and add it to the table
+                var entity = new TableEntity(partitionKey, rowKey) { ["Data"] = data };
+                await tableClient.AddEntityAsync(entity);
+
+                return new OkObjectResult("Data added to table");
+            }
+            catch (Exception ex)
+            {
+                log.LogError($"Error occurred while adding data to table: {ex.Message}");
+                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+            }
         }
     }
 }
